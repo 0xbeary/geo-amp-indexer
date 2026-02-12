@@ -11,27 +11,33 @@ echo "================================================"
 export API_PORT="${PORT:-3000}"
 export CORS_ORIGINS="${CORS_ORIGINS:-*}"
 
-# ── Parse DATABASE_URL if provided (Railway format) ──────────────────
-if [ -n "$DATABASE_URL" ]; then
-  echo "Using DATABASE_URL from environment"
-  export METADATA_DB_URL="$DATABASE_URL"
+# ── Initialize embedded PostgreSQL ──────────────────────────────────
+echo "Initializing embedded PostgreSQL..."
+PGDATA=/var/lib/postgresql/data
+
+# Fresh DB every deploy (ephemeral metadata)
+if [ -d "$PGDATA" ]; then
+  rm -rf "$PGDATA"/*
 fi
 
-# ── Update config with database URL ─────────────────────────────────
-if [ -n "$METADATA_DB_URL" ]; then
-  echo "Updating amp.config.toml with database URL..."
-  sed -i "s|metadata_db_url = .*|metadata_db_url = \"$METADATA_DB_URL\"|" /app/amp/amp.config.toml
-fi
+su postgres -c "/usr/lib/postgresql/15/bin/initdb -D $PGDATA --auth=trust --no-locale --encoding=UTF8"
 
-# ── Wait for PostgreSQL to be ready ─────────────────────────────────
-if [ -n "$PGHOST" ]; then
-  echo "Waiting for PostgreSQL at $PGHOST..."
-  until pg_isready -h "$PGHOST" -p "${PGPORT:-5432}" -U "${PGUSER:-postgres}" 2>/dev/null; do
-    echo "PostgreSQL is unavailable - sleeping"
-    sleep 2
-  done
-  echo "PostgreSQL is ready!"
-fi
+# Start PG temporarily to run migrations
+su postgres -c "/usr/lib/postgresql/15/bin/pg_ctl -D $PGDATA -l /tmp/pg_init.log start -o '-c listen_addresses=127.0.0.1 -c port=5432'"
+
+# Wait for PG to be ready
+until pg_isready -h 127.0.0.1 -p 5432 -U postgres 2>/dev/null; do
+  echo "Waiting for embedded PostgreSQL..."
+  sleep 1
+done
+echo "Embedded PostgreSQL is ready!"
+
+# Create the amp database
+su postgres -c "createdb -h 127.0.0.1 amp" 2>/dev/null || true
+
+# Set the metadata DB URL for AMP config
+export DATABASE_URL="postgresql://postgres@127.0.0.1:5432/amp"
+sed -i "s|metadata_db_url = .*|metadata_db_url = \"$DATABASE_URL\"|" /app/amp/amp.config.toml
 
 # ── Run migrations ──────────────────────────────────────────────────
 echo "Running database migrations..."
@@ -41,6 +47,10 @@ ampd migrate
 # ── Clear workers table ─────────────────────────────────────────────
 echo "Clearing workers table..."
 psql "$DATABASE_URL" -c "TRUNCATE TABLE public.workers CASCADE;" || true
+
+# Stop temporary PG (supervisord will manage it from here)
+su postgres -c "/usr/lib/postgresql/15/bin/pg_ctl -D $PGDATA stop"
+echo "PostgreSQL initialized, supervisord will manage it"
 
 # ── Generate unique worker ID ───────────────────────────────────────
 export AMP_NODE_ID="worker_$(date +%s)"
