@@ -232,7 +232,9 @@ const server = createServer(async (req, res) => {
       await handleHealth(req, res);
     } else if (path === '/status' && req.method === 'GET') {
       await handleStatus(req, res);
-    } else if (path === '/query' && req.method === 'POST') {
+    } else if ((path === '/query' || path === '/') && req.method === 'POST') {
+      // POST / is supported for drop-in compatibility with AMP's native JSONL endpoint
+      // Sinks can set AMP_ENDPOINT=https://your-amp.railway.app and it just works
       await handleQuery(req, res);
     } else if (path === '/events' && req.method === 'GET') {
       await handleEvents(req, res);
