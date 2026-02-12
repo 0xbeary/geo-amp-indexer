@@ -47,7 +47,7 @@ export AMP_NODE_ID="worker_$(date +%s)"
 echo "Using worker ID: $AMP_NODE_ID"
 
 # ── AMP sync mode ───────────────────────────────────────────────────
-export AMP_SYNC_MODE="${AMP_SYNC_MODE:-full}"
+export AMP_SYNC_MODE="${AMP_SYNC_MODE:-recent}"
 echo "Sync mode: $AMP_SYNC_MODE"
 
 # ── Register datasets (runs in background after AMP starts) ─────────
