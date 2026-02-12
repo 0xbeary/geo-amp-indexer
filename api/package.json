@@ -1,0 +1,18 @@
+{
+  "name": "@geo-amp/api",
+  "version": "1.0.0",
+  "description": "HTTP API for geo-amp-indexer — proxies AMP JSONL endpoint for remote sinks",
+  "type": "module",
+  "scripts": {
+    "start": "node dist/server.js",
+    "dev": "tsx src/server.ts",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

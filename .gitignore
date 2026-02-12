@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+
+# AMP indexed data (large Parquet files)
+data/*
+!data/.gitkeep
+
+# IDE
+.vscode/
+.idea/

@@ -1,0 +1,43 @@
+# Railway Config — geo-amp-indexer
+# Standalone AMP indexer for Geo Protocol blockchain data
+# Deploys independently — provides HTTP API for sinks to consume remotely
+#
+# Root Directory (set in Railway dashboard): /
+#
+# Required environment variables (set in Railway dashboard):
+#   DATABASE_URL          — PostgreSQL connection string (use Railway Postgres plugin)
+#   PGHOST                — postgres.railway.internal
+#   PGPORT                — 5432
+#   PGUSER                — ${{postgres.POSTGRES_USER}}
+#   PGPASSWORD            — ${{postgres.POSTGRES_PASSWORD}}
+#
+# Optional environment variables:
+#   AMP_SYNC_MODE         — "recent" (80k+) or "full" (0+). Default: full
+#   API_PORT              — HTTP API port (default: $PORT or 3000)
+#   CORS_ORIGINS          — CORS origins for HTTP API (default: *)
+#
+# Required volume (set in Railway dashboard):
+#   Mount path: /app/amp/data  — Persistent Parquet storage
+#
+# Required linked services:
+#   PostgreSQL (Railway built-in) — metadata storage for AMP
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+watchPatterns = [
+  "Dockerfile",
+  "docker-entrypoint.sh",
+  "supervisord.conf",
+  "amp.config.toml",
+  "manifests/**",
+  "providers/**",
+  "api/src/**",
+  "api/package.json",
+]
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 300
+restartPolicyType = "ALWAYS"
+restartPolicyMaxRetries = 5
