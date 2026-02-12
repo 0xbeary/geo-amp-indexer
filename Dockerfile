@@ -35,10 +35,11 @@ RUN pnpm build
 # ---------------------------------------------------------------------------
 FROM debian:bookworm-slim
 
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     supervisor \
+    postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js 20 (for the HTTP API)
