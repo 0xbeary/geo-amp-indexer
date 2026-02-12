@@ -9,8 +9,8 @@ providers_dir = "./providers"
 # Directory for extracted Parquet data (output)
 data_dir = "./data"
 
-# PostgreSQL metadata database URL
-metadata_db_url = "postgresql://postgres:postgres@db:5432/amp"
+# PostgreSQL metadata database URL (embedded, ephemeral — recreated each deploy)
+metadata_db_url = "postgresql://postgres@127.0.0.1:5432/amp"
 
 # Service addresses
 flight_addr = "0.0.0.0:1602"

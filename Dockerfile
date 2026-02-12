@@ -39,8 +39,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     supervisor \
+    postgresql \
     postgresql-client \
     && rm -rf /var/lib/apt/lists/*
+
+# Initialize PostgreSQL data directory
+RUN mkdir -p /var/run/postgresql /var/lib/postgresql/data \
+    && chown -R postgres:postgres /var/run/postgresql /var/lib/postgresql
 
 # Install Node.js 20 (for the HTTP API)
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
