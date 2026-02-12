@@ -28,33 +28,41 @@ Remote sink               Remote sink
 ## Deployment (Railway)
 
 This deploys as its own Railway service, separate from the data sinks/APIs.
+PostgreSQL is **embedded in the container** (ephemeral — recreated on each deploy).
+No external database service needed.
 
 ### Setup
 
 1. Create a new service in Railway pointing to this repo
-2. Add a **PostgreSQL plugin** (AMP metadata storage)
-3. Wire environment variables:
-   - `DATABASE_URL` → `${{postgres.DATABASE_URL}}`
-   - `PGHOST` → `postgres.railway.internal`
-4. **Mount a volume** at `/app/amp/data` (Parquet file storage)
-5. **Generate a public domain** — this is the URL your sinks will use
+2. **Mount a volume** at `/app/amp/data` (Parquet file storage — persists across deploys)
+3. **Generate a public domain** — this is the URL your sinks will use
+4. (Optional) Set `AMP_SYNC_MODE=recent` for faster initial sync from block 80k+
+
+### Branches
+
+| Branch | `AMP_SYNC_MODE` | Start Block | Use Case |
+|--------|-----------------|-------------|----------|
+| `main` | `full` | 0 | Full history sync |
+| `testing` | `recent` | 80,000 | Fast testing/dev |
 
 ### Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DATABASE_URL` | — | PostgreSQL connection (required) |
 | `AMP_SYNC_MODE` | `full` | `recent` (block 80k+) or `full` (block 0+) |
 | `CORS_ORIGINS` | `*` | Allowed CORS origins for the HTTP API |
 
 ### What Runs Inside
 
+All managed by `supervisord`:
+
 | Process | Description | Port |
 |---------|-------------|------|
+| PostgreSQL | Embedded metadata DB (ephemeral) | 5432 (internal) |
 | AMP Controller | Dataset scheduling | internal |
 | AMP Server | JSONL SQL endpoint | 1603 (internal) |
 | AMP Worker | Indexing execution | — |
-| HTTP API | Public query proxy | `$PORT` (public) |
+| HTTP API (Hono) | Public query proxy | `$PORT` (public) |
 
 ## HTTP API
 
@@ -117,9 +125,13 @@ The `/query` endpoint speaks the same JSONL protocol as AMP's native `:1603` —
    curl --proto '=https' --tlsv1.2 -sSf https://ampup.sh/install | sh
    ```
 
-2. Start PostgreSQL (for AMP metadata):
+2. Start PostgreSQL locally (for AMP metadata):
    ```bash
-   docker-compose up -d
+   # Using docker:
+   docker run -d --name amp-pg -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:16
+   createdb -h localhost -U postgres amp
+
+   # Or use the devcontainer's built-in postgres at db:5432
    ```
 
 ### Run
