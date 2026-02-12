@@ -23,8 +23,9 @@ FROM node:20-slim AS api-builder
 RUN npm install -g pnpm@9
 
 WORKDIR /build
-COPY api/package.json api/pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
+COPY api/package.json ./
+COPY api/pnpm-lock.yaml* ./
+RUN pnpm install --frozen-lockfile || pnpm install
 COPY api/tsconfig.json ./
 COPY api/src/ ./src/
 RUN pnpm build
@@ -36,7 +37,6 @@ FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y \
     ca-certificates \
-    postgresql-client \
     curl \
     supervisor \
     && rm -rf /var/lib/apt/lists/*
