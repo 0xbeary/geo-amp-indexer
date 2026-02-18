@@ -86,13 +86,6 @@ No external database service needed.
 3. **Generate a public domain** — this is the URL your sinks will use
 4. (Optional) Set `AMP_SYNC_MODE=recent` for faster initial sync from block 80k+
 
-### Branches
-
-| Branch | `AMP_SYNC_MODE` | Start Block | Use Case |
-|--------|-----------------|-------------|----------|
-| `main` | `full` | 0 | Full history sync |
-| `testing` | `recent` | 80,000 | Fast testing/dev |
-
 ### Environment Variables
 
 | Variable | Default | Description |
