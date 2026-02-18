@@ -30,6 +30,28 @@ const AMP_ENDPOINT = process.env.AMP_ENDPOINT || 'http://127.0.0.1:1603';
 const AMP_ADMIN_URL = process.env.AMP_ADMIN_URL || 'http://127.0.0.1:1610';
 const CORS_ORIGINS = process.env.CORS_ORIGINS || '*';
 
+// Allowed dataset identifiers (prevents SQL injection via table names)
+const ALLOWED_DATASETS = new Set([
+  'geo_evm_rpc',
+  'geo_evm_rpc_full',
+]);
+
+function validateDataset(dataset: string): string {
+  if (!ALLOWED_DATASETS.has(dataset)) {
+    throw new Error(`Invalid dataset: ${dataset}. Allowed: ${[...ALLOWED_DATASETS].join(', ')}`);
+  }
+  return dataset;
+}
+
+function parseBlockNum(value: string | undefined, fallback?: number): number | undefined {
+  if (value === undefined || value === '') return fallback;
+  const num = Number(value);
+  if (!Number.isInteger(num) || num < 0) {
+    throw new Error(`Invalid block number: ${value}`);
+  }
+  return num;
+}
+
 // =============================================================================
 // AMP Query Helpers
 // =============================================================================
@@ -81,7 +103,6 @@ app.get('/health', async (c) => {
     return c.json({
       status: 'ok',
       service: 'geo-amp-indexer',
-      ampEndpoint: AMP_ENDPOINT,
       latestBlock: latestFull ?? latestRecent ?? null,
       datasets: { recent: latestRecent, full: latestFull },
       timestamp: new Date().toISOString(),
@@ -110,8 +131,6 @@ app.get('/status', async (c) => {
       datasets,
       jobs,
       config: {
-        ampEndpoint: AMP_ENDPOINT,
-        ampAdmin: AMP_ADMIN_URL,
         syncMode: process.env.AMP_SYNC_MODE || 'full',
       },
       timestamp: new Date().toISOString(),
@@ -121,8 +140,41 @@ app.get('/status', async (c) => {
   }
 });
 
+// =============================================================================
+// Simple rate limiter (per-IP, sliding window)
+// =============================================================================
+
+const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
+const RATE_LIMIT_MAX = parseInt(process.env.RATE_LIMIT_MAX || '60'); // requests per window
+const rateLimitMap = new Map<string, number[]>();
+
+function rateLimit(ip: string): boolean {
+  const now = Date.now();
+  const timestamps = rateLimitMap.get(ip) || [];
+  const recent = timestamps.filter(t => now - t < RATE_LIMIT_WINDOW_MS);
+  if (recent.length >= RATE_LIMIT_MAX) return false;
+  recent.push(now);
+  rateLimitMap.set(ip, recent);
+  return true;
+}
+
+// Cleanup stale entries every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, timestamps] of rateLimitMap) {
+    const recent = timestamps.filter(t => now - t < RATE_LIMIT_WINDOW_MS);
+    if (recent.length === 0) rateLimitMap.delete(ip);
+    else rateLimitMap.set(ip, recent);
+  }
+}, 300_000);
+
 // POST /query and POST / — SQL query proxy (same JSONL protocol as AMP)
 const handleQuery = async (c: any) => {
+  const ip = c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+  if (!rateLimit(ip)) {
+    return c.json({ error: 'Rate limit exceeded. Max 60 requests per minute.' }, 429);
+  }
+
   const contentType = c.req.header('content-type') || '';
   let sql: string;
 
@@ -153,39 +205,45 @@ app.post('/', handleQuery);
 
 // GET /events?from=N&to=N&dataset=geo_evm_rpc_full
 app.get('/events', async (c) => {
-  const from = c.req.query('from') || '0';
-  const to = c.req.query('to');
-  const dataset = c.req.query('dataset') || 'geo_evm_rpc_full';
-
-  const EDITS_TOPIC = 'a848eb297c5b02d48ac057876502bddd8bfc8d0199d69c71dc02e4f518fdf380';
-
-  let sql = `
-    SELECT block_num, tx_hash, log_index, address, topic0, topic1, data
-    FROM "${dataset}".logs
-    WHERE topic0 = decode('${EDITS_TOPIC}', 'hex')
-      AND block_num >= ${from}
-  `;
-  if (to) sql += `  AND block_num <= ${to}\n`;
-  sql += `    ORDER BY block_num ASC, log_index ASC\n    LIMIT 10000`;
-
   try {
+    const fromBlock = parseBlockNum(c.req.query('from'), 0)!;
+    const toBlock = parseBlockNum(c.req.query('to'));
+    const dataset = validateDataset(c.req.query('dataset') || 'geo_evm_rpc_full');
+
+    const EDITS_TOPIC = 'a848eb297c5b02d48ac057876502bddd8bfc8d0199d69c71dc02e4f518fdf380';
+
+    let sql = `
+      SELECT block_num, tx_hash, log_index, address, topic0, topic1, data
+      FROM "${dataset}".logs
+      WHERE topic0 = decode('${EDITS_TOPIC}', 'hex')
+        AND block_num >= ${fromBlock}
+    `;
+    if (toBlock !== undefined) sql += `  AND block_num <= ${toBlock}\n`;
+    sql += `    ORDER BY block_num ASC, log_index ASC\n    LIMIT 10000`;
+
     const rows = await queryAmpJson(sql);
-    return c.json({ events: rows, count: rows.length, from: Number(from), to: to ? Number(to) : null });
-  } catch (error) {
+    return c.json({ events: rows, count: rows.length, from: fromBlock, to: toBlock ?? null });
+  } catch (error: any) {
+    if (error.message?.startsWith('Invalid')) {
+      return c.json({ error: error.message }, 400);
+    }
     return c.json({ error: String(error) }, 502);
   }
 });
 
 // GET /blocks/latest?dataset=geo_evm_rpc_full
 app.get('/blocks/latest', async (c) => {
-  const dataset = c.req.query('dataset') || 'geo_evm_rpc_full';
-
   try {
+    const dataset = validateDataset(c.req.query('dataset') || 'geo_evm_rpc_full');
+
     const rows = await queryAmpJson<{ latest: string | number }>(
       `SELECT MAX(block_num) as latest FROM "${dataset}".blocks`
     );
     return c.json({ latestBlock: rows[0]?.latest ? Number(rows[0].latest) : null, dataset });
-  } catch (error) {
+  } catch (error: any) {
+    if (error.message?.startsWith('Invalid')) {
+      return c.json({ error: error.message }, 400);
+    }
     return c.json({ error: String(error) }, 502);
   }
 });

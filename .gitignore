@@ -22,3 +22,4 @@ data/*
 # IDE
 .vscode/
 .idea/
+package-lock.json
