@@ -1,11 +1,11 @@
-# geo-amp-indexer
+# AMP Indexer
 
-Standalone AMP indexer for Geo Protocol testnet. Extracts **all** on-chain data (blocks, transactions, logs) into Parquet files and serves them via SQL over HTTP.
+Standalone AMP indexer for EVM chains. Extracts **all** on-chain data (blocks, transactions, logs) into Parquet files and serves them via SQL over HTTP.
 
 ## Architecture
 
 ```
-Geo Testnet (chain 19411)
+EVM Chain (via RPC)
         │
         ▼
 ┌─────────────────┐
@@ -15,19 +15,67 @@ Geo Testnet (chain 19411)
          │
          ▼
 ┌─────────────────┐
-│  HTTP API       │  Public interface for remote sinks
-│  (:3000/$PORT)  │  /query, /events, /health, /status
+│  HTTP API       │  Generic proxy — no domain logic
+│  (:3000/$PORT)  │  /query, /health, /status, /blocks/latest
 └─────────────────┘
          │
     ┌────┴────────────────────┐
     ▼                         ▼
-Remote sink               Remote sink
-(neo4j-sink)              (postgres-sink)
+┌──────────────┐      ┌──────────────┐
+│  neo4j-sink  │      │ postgres-sink│
+│  (consumer)  │      │  (consumer)  │
+└──────────────┘      └──────────────┘
+Queries AMP for         Queries AMP for
+events, decodes         events, decodes
+& writes to Neo4j       & writes to Postgres
 ```
+
+**This service is a raw data layer.** It indexes _all_ EVM data (blocks, transactions, logs) without any domain-specific filtering or interpretation. The sinks are responsible for:
+
+- Knowing which event topics to query (e.g. `EditsPublished`, `SafeOwnerAdded`)
+- Decoding event data (ABI parsing, address extraction)
+- Writing structured data to their target databases
+
+## Getting Data
+
+AMP stores raw blockchain data. To actually use it, you need a **sink** — a consumer that queries AMP, filters for relevant events, decodes them, and writes to a downstream database.
+
+### Available Sinks
+
+| Sink | Target DB | Location |
+|------|-----------|----------|
+| `amp-postgres` | PostgreSQL | `../sinks/amp-postgres/` |
+| `amp-neo4j` | Neo4j | `../sinks/amp-neo4j/` |
+
+### How Sinks Connect
+
+Sinks query AMP via the `POST /query` endpoint (or directly to port `:1603` if co-located). They send raw SQL and receive NDJSON results:
+
+```bash
+# What a sink does internally:
+curl -X POST http://amp-api:3000/query \
+  -H "Content-Type: text/plain" \
+  -d 'SELECT block_num, tx_hash, log_index, address, topic0, topic1, data
+      FROM "geo_evm_rpc_full".logs
+      WHERE topic0 = decode('\''a848eb...'\'', '\''hex'\'')
+        AND block_num >= 80000
+      ORDER BY block_num, log_index'
+```
+
+The sink knows the event signatures, contract addresses, and how to decode the raw log data. AMP just stores and serves the raw bytes.
+
+### Pointing a Sink at This Service
+
+```env
+# In your sink's .env:
+AMP_ENDPOINT=https://your-amp-instance.railway.app/query
+```
+
+The `/query` endpoint speaks the same JSONL protocol as AMP's native `:1603` — sinks work transparently with either a local or remote AMP endpoint.
 
 ## Deployment (Railway)
 
-This deploys as its own Railway service, separate from the data sinks/APIs.
+This deploys as its own Railway service, separate from the data sinks.
 PostgreSQL is **embedded in the container** (ephemeral — recreated on each deploy).
 No external database service needed.
 
@@ -51,6 +99,8 @@ No external database service needed.
 |----------|---------|-------------|
 | `AMP_SYNC_MODE` | `full` | `recent` (block 80k+) or `full` (block 0+) |
 | `CORS_ORIGINS` | `*` | Allowed CORS origins for the HTTP API |
+| `SERVICE_NAME` | `amp-api` | Service name in health/log output |
+| `RATE_LIMIT_MAX` | `60` | Max requests per minute per IP on `/query` |
 
 ### What Runs Inside
 
@@ -66,18 +116,18 @@ All managed by `supervisord`:
 
 ## HTTP API
 
-The HTTP API proxies AMP's internal JSONL endpoint, making it accessible over the network. Sinks can point `AMP_ENDPOINT` at this URL.
+The HTTP API is a **generic, protocol-agnostic proxy** for AMP's internal JSONL endpoint. It has no knowledge of specific events, contracts, or chains — that logic belongs in the sinks.
 
 ### Endpoints
 
 #### `GET /health`
-Health check with latest indexed block info.
+Health check. Dynamically discovers datasets from AMP's admin API and reports the latest indexed block for each.
 
 #### `GET /status`
 Detailed indexer status (active datasets, jobs, sync progress).
 
 #### `POST /query`
-SQL query proxy. Accepts raw SQL as `text/plain` body (same protocol as AMP's native JSONL endpoint) or JSON `{ "sql": "SELECT ..." }`.
+SQL query proxy. Accepts raw SQL as `text/plain` body (same protocol as AMP's native JSONL endpoint) or JSON `{ "sql": "SELECT ..." }`. Rate-limited per IP.
 
 ```bash
 # Raw SQL (compatible with AMP protocol)
@@ -91,30 +141,12 @@ curl -X POST https://your-amp.railway.app/query \
   -d '{"sql": "SELECT MAX(block_num) FROM \"geo_evm_rpc_full\".blocks"}'
 ```
 
-#### `GET /events?from=N&to=N&dataset=D`
-Convenience endpoint for EditsPublished events.
+#### `GET /blocks/latest?dataset=<name>`
+Get the latest indexed block number for a specific dataset.
 
 ```bash
-curl "https://your-amp.railway.app/events?from=80000&to=90000"
+curl "https://your-amp.railway.app/blocks/latest?dataset=geo_evm_rpc_full"
 ```
-
-#### `GET /blocks/latest?dataset=D`
-Get the latest indexed block number.
-
-```bash
-curl "https://your-amp.railway.app/blocks/latest"
-```
-
-## Using with Remote Sinks
-
-Once deployed, configure your sinks to point at this service:
-
-```env
-# In amp-neo4j-sink or amp-postgres-sink .env:
-AMP_ENDPOINT=https://your-amp-indexer.railway.app/query
-```
-
-The `/query` endpoint speaks the same JSONL protocol as AMP's native `:1603` — sinks work transparently with either a local or remote AMP endpoint.
 
 ## Local Development
 
@@ -154,9 +186,11 @@ ampctl dataset deploy _/geo_testnet_full@1.0.0 --admin-url http://127.0.0.1:1610
 cd api && pnpm dev
 ```
 
-## Chain Info
+## Current Chain Config
 
-- **Network**: Geo Protocol Testnet
+This instance is configured for Geo Protocol Testnet (see `providers/` and `manifests/`):
+
 - **Chain ID**: 19411
 - **RPC**: `https://rpc-geo-test-zc16z3tcvf.t.conduit.xyz`
-- **EditsPublished topic0**: `0xa848eb297c5b02d48ac057876502bddd8bfc8d0199d69c71dc02e4f518fdf380`
+
+To index a different chain, add a new provider in `providers/` and a manifest in `manifests/`.
