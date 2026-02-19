@@ -4,7 +4,7 @@
 # Chain ID: 19411
 
 kind = "evm-rpc"
-network = "geo-testnet"
+network = "geo_testnet"
 
 # RPC endpoint URL
 url = "https://rpc-geo-test-zc16z3tcvf.t.conduit.xyz"

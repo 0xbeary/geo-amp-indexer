@@ -1,6 +1,6 @@
 {
   "kind": "evm-rpc",
-  "network": "geo-testnet",
+  "network": "geo_testnet",
   "start_block": 80000,
   "finalized_blocks_only": false,
   "tables": {
@@ -173,7 +173,7 @@
           ]
         }
       },
-      "network": "geo-testnet"
+      "network": "geo_testnet"
     },
     "logs": {
       "schema": {
@@ -266,7 +266,7 @@
           ]
         }
       },
-      "network": "geo-testnet"
+      "network": "geo_testnet"
     },
     "transactions": {
       "schema": {
@@ -567,7 +567,7 @@
           ]
         }
       },
-      "network": "geo-testnet"
+      "network": "geo_testnet"
     }
   }
 }
