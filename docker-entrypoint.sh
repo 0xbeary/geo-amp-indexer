@@ -37,7 +37,7 @@ su postgres -c "createdb -h 127.0.0.1 amp" 2>/dev/null || true
 
 # Set the metadata DB URL for AMP config
 export DATABASE_URL="postgresql://postgres@127.0.0.1:5432/amp"
-sed -i "s|metadata_db_url = .*|metadata_db_url = \"$DATABASE_URL\"|" /app/amp/amp.config.toml
+sed -i 's|^url = .*|url = "'"$DATABASE_URL"'"|' /app/amp/amp.config.toml
 
 # ── Run migrations ──────────────────────────────────────────────────
 echo "Running database migrations..."

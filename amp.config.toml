@@ -9,9 +9,6 @@ providers_dir = "./providers"
 # Directory for extracted Parquet data (output)
 data_dir = "./data"
 
-# PostgreSQL metadata database URL (embedded, ephemeral — recreated each deploy)
-metadata_db_url = "postgresql://postgres@127.0.0.1:5432/amp"
-
 # Service addresses
 flight_addr = "0.0.0.0:1602"
 jsonl_addr = "0.0.0.0:1603"
@@ -20,3 +17,7 @@ admin_api_addr = "0.0.0.0:1610"
 # Writer configuration
 [writer]
 compression = "zstd(3)"
+
+# PostgreSQL metadata database (embedded, ephemeral — recreated each deploy)
+[metadata_db]
+url = "postgresql://postgres:postgres@db:5432/amp"

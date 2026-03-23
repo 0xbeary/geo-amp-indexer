@@ -5,7 +5,7 @@
 # ---------------------------------------------------------------------------
 # Stage 1: Build AMP (Rust)
 # ---------------------------------------------------------------------------
-FROM rust:1.75-bookworm AS amp-builder
+FROM rust:1.94-bookworm AS amp-builder
 
 RUN apt-get update && apt-get install -y \
     git pkg-config libssl-dev cmake clang \
